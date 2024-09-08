@@ -26,17 +26,8 @@ class EditorToolbar {
 
   #altText = null;
 
-  static #l10nRemove = null;
-
   constructor(editor) {
     this.#editor = editor;
-
-    EditorToolbar.#l10nRemove ||= Object.freeze({
-      freetext: "pdfjs-editor-remove-freetext-button",
-      highlight: "pdfjs-editor-remove-highlight-button",
-      ink: "pdfjs-editor-remove-ink-button",
-      stamp: "pdfjs-editor-remove-stamp-button",
-    });
   }
 
   render() {
@@ -69,10 +60,6 @@ class EditorToolbar {
     this.#addDeleteButton();
 
     return editToolbar;
-  }
-
-  get div() {
-    return this.#toolbar;
   }
 
   static #pointerDown(e) {
@@ -118,19 +105,20 @@ class EditorToolbar {
   }
 
   #addDeleteButton() {
-    const { editorType, _uiManager } = this.#editor;
-
     const button = document.createElement("button");
     button.className = "delete";
     button.tabIndex = 0;
-    button.setAttribute("data-l10n-id", EditorToolbar.#l10nRemove[editorType]);
+    button.setAttribute(
+      "data-l10n-id",
+      `pdfjs-editor-remove-${this.#editor.editorType}-button`
+    );
     this.#addListenersToElement(button);
     button.addEventListener(
       "click",
       e => {
-        _uiManager.delete();
+        this.#editor._uiManager.delete();
       },
-      { signal: _uiManager._signal }
+      { signal: this.#editor._uiManager._signal }
     );
     this.#buttons.append(button);
   }

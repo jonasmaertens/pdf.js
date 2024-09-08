@@ -323,10 +323,8 @@ class AnnotationEditorLayer {
         editor = changedAnnotations.get(id);
         if (editor) {
           this.#uiManager.addChangedExistingAnnotation(editor);
-          if (editor.renderAnnotationElement(editable)) {
-            // Content has changed, so we need to hide the editor.
-            editor.show(false);
-          }
+          editor.renderAnnotationElement(editable);
+          editor.show(false);
         }
         editable.show();
       }
@@ -395,8 +393,7 @@ class AnnotationEditorLayer {
     const { target } = event;
     if (
       target === this.#textLayer.div ||
-      ((target.getAttribute("role") === "img" ||
-        target.classList.contains("endOfContent")) &&
+      (target.classList.contains("endOfContent") &&
         this.#textLayer.div.contains(target))
     ) {
       const { isMac } = FeatureTest.platform;
@@ -414,7 +411,7 @@ class AnnotationEditorLayer {
       HighlightEditor.startHighlighting(
         this,
         this.#uiManager.direction === "ltr",
-        { target: this.#textLayer.div, x: event.x, y: event.y }
+        event
       );
       this.#textLayer.div.addEventListener(
         "pointerup",

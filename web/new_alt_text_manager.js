@@ -40,8 +40,6 @@ class NewAltTextManager {
 
   #guessedAltText;
 
-  #hasAI = false;
-
   #isEditing = null;
 
   #imagePreview;
@@ -130,16 +128,16 @@ class NewAltTextManager {
     textarea.addEventListener("focus", () => {
       this.#wasAILoading = this.#isAILoading;
       this.#toggleLoading(false);
-      this.#toggleTitleAndDisclaimer();
     });
     textarea.addEventListener("blur", () => {
-      if (!textarea.value) {
-        this.#toggleLoading(this.#wasAILoading);
+      if (textarea.value) {
+        return;
       }
-      this.#toggleTitleAndDisclaimer();
+      this.#toggleLoading(this.#wasAILoading);
     });
     textarea.addEventListener("input", () => {
-      this.#toggleTitleAndDisclaimer();
+      this.#toggleTitle();
+      this.#toggleDisclaimer();
     });
 
     eventBus._on("enableguessalttext", ({ value }) => {
@@ -171,6 +169,18 @@ class NewAltTextManager {
     this.#dialog.classList.toggle("error", value);
   }
 
+  #toggleTitle() {
+    const isEditing = this.#isAILoading || !!this.#textarea.value;
+    if (this.#isEditing === isEditing) {
+      return;
+    }
+    this.#isEditing = isEditing;
+    this.#title.setAttribute(
+      "data-l10n-id",
+      `pdfjs-editor-new-alt-text-dialog-${isEditing ? "edit" : "add"}-label`
+    );
+  }
+
   async #toggleGuessAltText(value, isInitial = false) {
     if (!this.#uiManager) {
       return;
@@ -187,7 +197,8 @@ class NewAltTextManager {
     } else {
       this.#toggleLoading(false);
       this.#isAILoading = false;
-      this.#toggleTitleAndDisclaimer();
+      this.#toggleTitle();
+      this.#toggleDisclaimer();
     }
   }
 
@@ -197,34 +208,19 @@ class NewAltTextManager {
   }
 
   #toggleAI(value) {
-    if (!this.#uiManager || this.#hasAI === value) {
-      return;
-    }
-    this.#hasAI = value;
     this.#dialog.classList.toggle("noAi", !value);
-    this.#toggleTitleAndDisclaimer();
+    this.#toggleTitle();
   }
 
-  #toggleTitleAndDisclaimer() {
-    // Disclaimer is visible when the AI is loading or the user didn't change
-    // the guessed alt text.
-    const visible =
-      this.#isAILoading ||
-      (this.#guessedAltText && this.#guessedAltText === this.#textarea.value);
-    this.#disclaimer.hidden = !visible;
-
-    // The title changes depending if the text area is empty or not.
-    const isEditing = this.#isAILoading || !!this.#textarea.value;
-    if (this.#isEditing === isEditing) {
+  #toggleDisclaimer(value = null) {
+    if (!this.#uiManager) {
       return;
     }
-    this.#isEditing = isEditing;
-    this.#title.setAttribute(
-      "data-l10n-id",
-      isEditing
-        ? "pdfjs-editor-new-alt-text-dialog-edit-label"
-        : "pdfjs-editor-new-alt-text-dialog-add-label"
-    );
+    const hidden =
+      value === null
+        ? !this.#guessedAltText || this.#guessedAltText !== this.#textarea.value
+        : !value;
+    this.#disclaimer.classList.toggle("hidden", hidden);
   }
 
   async #mlGuessAltText(isInitial) {
@@ -247,11 +243,14 @@ class NewAltTextManager {
     if (this.#previousAltText === null && this.#guessedAltText) {
       // We have a guessed alt text and the user didn't change it.
       this.#addAltText(this.#guessedAltText);
+      this.#toggleDisclaimer();
+      this.#toggleTitle();
       return;
     }
 
     this.#toggleLoading(true);
-    this.#toggleTitleAndDisclaimer();
+    this.#toggleTitle();
+    this.#toggleDisclaimer(true);
 
     let hasError = false;
     try {
@@ -275,10 +274,11 @@ class NewAltTextManager {
     }
 
     this.#toggleLoading(false);
-    this.#toggleTitleAndDisclaimer();
 
     if (hasError && this.#uiManager) {
       this.#toggleError(true);
+      this.#toggleTitle();
+      this.#toggleDisclaimer();
     }
   }
 
@@ -287,7 +287,6 @@ class NewAltTextManager {
       return;
     }
     this.#textarea.value = altText;
-    this.#toggleTitleAndDisclaimer();
   }
 
   #setProgress() {

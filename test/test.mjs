@@ -69,11 +69,6 @@ function parseOptions() {
       describe: "Skip Chrome when running tests.",
       type: "boolean",
     })
-    .option("noFirefox", {
-      default: false,
-      describe: "Skip Firefox when running tests.",
-      type: "boolean",
-    })
     .option("noDownload", {
       default: false,
       describe: "Skip downloading of test PDFs.",
@@ -973,13 +968,7 @@ async function startBrowsers({ baseUrl, initializeSession }) {
   // prevent the disk from filling up over time.
   await puppeteer.trimCache();
 
-  const browserNames = ["firefox", "chrome"];
-  if (options.noChrome) {
-    browserNames.splice(1, 1);
-  }
-  if (options.noFirefox) {
-    browserNames.splice(0, 1);
-  }
+  const browserNames = options.noChrome ? ["firefox"] : ["firefox", "chrome"];
   for (const browserName of browserNames) {
     // The session must be pushed first and augmented with the browser once
     // it's initialized. The reason for this is that browser initialization

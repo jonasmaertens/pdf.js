@@ -15,7 +15,6 @@
 
 import { assert, stringToBytes } from "../shared/util.js";
 import {
-  createHeaders,
   createResponseStatusError,
   extractFilenameFromHeader,
   validateRangeRequestCapabilities,
@@ -39,11 +38,11 @@ function getArrayBuffer(xhr) {
 }
 
 class NetworkManager {
-  constructor({ url, httpHeaders, withCredentials }) {
+  constructor(url, args = {}) {
     this.url = url;
     this.isHttp = /^https?:/i.test(url);
-    this.headers = createHeaders(this.isHttp, httpHeaders);
-    this.withCredentials = withCredentials || false;
+    this.httpHeaders = (this.isHttp && args.httpHeaders) || Object.create(null);
+    this.withCredentials = args.withCredentials || false;
 
     this.currXhrId = 0;
     this.pendingRequests = Object.create(null);
@@ -71,8 +70,12 @@ class NetworkManager {
 
     xhr.open("GET", this.url);
     xhr.withCredentials = this.withCredentials;
-    for (const [key, val] of this.headers) {
-      xhr.setRequestHeader(key, val);
+    for (const property in this.httpHeaders) {
+      const value = this.httpHeaders[property];
+      if (value === undefined) {
+        continue;
+      }
+      xhr.setRequestHeader(property, value);
     }
     if (this.isHttp && "begin" in args && "end" in args) {
       xhr.setRequestHeader("Range", `bytes=${args.begin}-${args.end - 1}`);
@@ -191,7 +194,10 @@ class NetworkManager {
 class PDFNetworkStream {
   constructor(source) {
     this._source = source;
-    this._manager = new NetworkManager(source);
+    this._manager = new NetworkManager(source.url, {
+      httpHeaders: source.httpHeaders,
+      withCredentials: source.withCredentials,
+    });
     this._rangeChunkSize = source.rangeChunkSize;
     this._fullRequestReader = null;
     this._rangeRequestReaders = [];
@@ -249,7 +255,7 @@ class PDFNetworkStreamFullRequestReader {
     };
     this._url = source.url;
     this._fullRequestId = manager.requestFull(args);
-    this._headersCapability = Promise.withResolvers();
+    this._headersReceivedCapability = Promise.withResolvers();
     this._disableRange = source.disableRange || false;
     this._contentLength = source.length; // Optional
     this._rangeChunkSize = source.rangeChunkSize;
@@ -273,20 +279,11 @@ class PDFNetworkStreamFullRequestReader {
     const fullRequestXhrId = this._fullRequestId;
     const fullRequestXhr = this._manager.getRequestXhr(fullRequestXhrId);
 
-    const responseHeaders = new Headers(
-      fullRequestXhr
-        .getAllResponseHeaders()
-        .trim()
-        .split(/[\r\n]+/)
-        .map(x => {
-          const [key, ...val] = x.split(": ");
-          return [key, val.join(": ")];
-        })
-    );
+    const getResponseHeader = name => fullRequestXhr.getResponseHeader(name);
 
     const { allowRangeRequests, suggestedLength } =
       validateRangeRequestCapabilities({
-        responseHeaders,
+        getResponseHeader,
         isHttp: this._manager.isHttp,
         rangeChunkSize: this._rangeChunkSize,
         disableRange: this._disableRange,
@@ -298,7 +295,7 @@ class PDFNetworkStreamFullRequestReader {
     // Setting right content length.
     this._contentLength = suggestedLength || this._contentLength;
 
-    this._filename = extractFilenameFromHeader(responseHeaders);
+    this._filename = extractFilenameFromHeader(getResponseHeader);
 
     if (this._isRangeSupported) {
       // NOTE: by cancelling the full request, and then issuing range
@@ -308,7 +305,7 @@ class PDFNetworkStreamFullRequestReader {
       this._manager.abortRequest(fullRequestXhrId);
     }
 
-    this._headersCapability.resolve();
+    this._headersReceivedCapability.resolve();
   }
 
   _onDone(data) {
@@ -332,7 +329,7 @@ class PDFNetworkStreamFullRequestReader {
 
   _onError(status) {
     this._storedError = createResponseStatusError(status, this._url);
-    this._headersCapability.reject(this._storedError);
+    this._headersReceivedCapability.reject(this._storedError);
     for (const requestCapability of this._requests) {
       requestCapability.reject(this._storedError);
     }
@@ -364,7 +361,7 @@ class PDFNetworkStreamFullRequestReader {
   }
 
   get headersReady() {
-    return this._headersCapability.promise;
+    return this._headersReceivedCapability.promise;
   }
 
   async read() {
@@ -385,7 +382,7 @@ class PDFNetworkStreamFullRequestReader {
 
   cancel(reason) {
     this._done = true;
-    this._headersCapability.reject(reason);
+    this._headersReceivedCapability.reject(reason);
     for (const requestCapability of this._requests) {
       requestCapability.resolve({ value: undefined, done: true });
     }

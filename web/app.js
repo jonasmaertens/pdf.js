@@ -89,6 +89,7 @@ import { Preferences } from "web-preferences";
 import { SecondaryToolbar } from "web-secondary_toolbar";
 import { Toolbar } from "web-toolbar";
 import { ViewHistory } from "./view_history.js";
+import { togglePreview } from "./pdf_ref_preview.js";
 
 const FORCE_PAGES_LOADED_TIMEOUT = 10000; // ms
 
@@ -1440,6 +1441,8 @@ const PDFViewerApplication = {
 
     this._initializePageLabels(pdfDocument);
     this._initializeMetadata(pdfDocument);
+
+    togglePreview(); // Default enable ref preview
   },
 
   /**
@@ -2945,6 +2948,10 @@ function onKeyDown(evt) {
       case 75: // 'k'
       case 80: // 'p'
         turnPage = -1;
+        break;
+      case 81: // 'q'
+        togglePreview();
+        handled = true;
         break;
       case 27: // esc key
         if (this.secondaryToolbar?.isOpen) {

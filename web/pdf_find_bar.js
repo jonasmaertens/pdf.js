@@ -123,9 +123,7 @@ class PDFFindBar {
         status = "notFound";
         break;
       case FindState.WRAPPED:
-        findMsgId = previous
-          ? "pdfjs-find-reached-top"
-          : "pdfjs-find-reached-bottom";
+        findMsgId = `pdfjs-find-reached-${previous ? "top" : "bottom"}`;
         break;
     }
     findField.setAttribute("data-status", status);
@@ -150,9 +148,7 @@ class PDFFindBar {
 
       findResultsCount.setAttribute(
         "data-l10n-id",
-        total > limit
-          ? "pdfjs-find-match-count-limit"
-          : "pdfjs-find-match-count"
+        `pdfjs-find-match-count${total > limit ? "-limit" : ""}`
       );
       findResultsCount.setAttribute(
         "data-l10n-args",
