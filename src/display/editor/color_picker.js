@@ -43,6 +43,8 @@ class ColorPicker {
 
   #uiManager = null;
 
+  static #l10nColor = null;
+
   static get _keyboardManager() {
     return shadow(
       this,
@@ -80,6 +82,14 @@ class ColorPicker {
       editor?.color?.toUpperCase() ||
       this.#uiManager?.highlightColors.values().next().value ||
       "#FFFF98";
+
+    ColorPicker.#l10nColor ||= Object.freeze({
+      blue: "pdfjs-editor-colorpicker-blue",
+      green: "pdfjs-editor-colorpicker-green",
+      pink: "pdfjs-editor-colorpicker-pink",
+      red: "pdfjs-editor-colorpicker-red",
+      yellow: "pdfjs-editor-colorpicker-yellow",
+    });
   }
 
   renderButton() {
@@ -128,7 +138,7 @@ class ColorPicker {
       button.role = "option";
       button.setAttribute("data-color", color);
       button.title = name;
-      button.setAttribute("data-l10n-id", `pdfjs-editor-colorpicker-${name}`);
+      button.setAttribute("data-l10n-id", ColorPicker.#l10nColor[name]);
       const swatch = document.createElement("span");
       button.append(swatch);
       swatch.className = "swatch";
