@@ -34,7 +34,7 @@ class NameOrNumberTree {
     this._type = type;
   }
 
-  getAll() {
+  getAll(isRaw = false) {
     const map = new Map();
     if (!this.root) {
       return map;
@@ -68,13 +68,16 @@ class NameOrNumberTree {
         continue;
       }
       for (let i = 0, ii = entries.length; i < ii; i += 2) {
-        map.set(xref.fetchIfRef(entries[i]), xref.fetchIfRef(entries[i + 1]));
+        map.set(
+          xref.fetchIfRef(entries[i]),
+          isRaw ? entries[i + 1] : xref.fetchIfRef(entries[i + 1])
+        );
       }
     }
     return map;
   }
 
-  get(key) {
+  getRaw(key) {
     if (!this.root) {
       return null;
     }
@@ -135,11 +138,15 @@ class NameOrNumberTree {
         } else if (key > currentKey) {
           l = m + 2;
         } else {
-          return xref.fetchIfRef(entries[m + 1]);
+          return entries[m + 1];
         }
       }
     }
     return null;
+  }
+
+  get(key) {
+    return this.xref.fetchIfRef(this.getRaw(key));
   }
 }
 

@@ -128,7 +128,7 @@ function testSearch({
       }
     }
 
-    const totalMatches = matchesPerPage.reduce((a, b) => a + b);
+    const totalMatches = Math.sumPrecise(matchesPerPage);
 
     if (updateFindControlState) {
       eventBus.on(
@@ -634,8 +634,8 @@ describe("pdf_find_controller", function () {
         pageIndex: 0,
         matchIndex: 0,
       },
-      pageMatches: [[1497]],
-      pageMatchesLength: [[25]],
+      pageMatches: [[1498]],
+      pageMatchesLength: [[24]],
     });
   });
 
@@ -1060,6 +1060,122 @@ describe("pdf_find_controller", function () {
 
     const { eventBus } = await initPdfFindController();
     await testOnFind({ eventBus });
+  });
+
+  it("performs a search in a text with a compound word on two lines", async function () {
+    const { eventBus, pdfFindController } =
+      await initPdfFindController("issue18693.pdf");
+
+    const query = "hel-Lo";
+    await testSearch({
+      eventBus,
+      pdfFindController,
+      state: {
+        query,
+      },
+      matchesPerPage: [1],
+      selectedMatch: {
+        pageIndex: 0,
+        matchIndex: 0,
+      },
+      pageMatches: [[6]],
+      pageMatchesLength: [[query.length]],
+    });
+  });
+
+  it("performs a search after a compound word on two lines", async function () {
+    const { eventBus, pdfFindController } =
+      await initPdfFindController("issue19120.pdf");
+
+    const query = "a";
+    await testSearch({
+      eventBus,
+      pdfFindController,
+      state: {
+        query,
+      },
+      matchesPerPage: [3],
+      selectedMatch: {
+        pageIndex: 0,
+        matchIndex: 0,
+      },
+      pageMatches: [[0, 4, 15]],
+      pageMatchesLength: [[query.length, query.length, query.length]],
+    });
+  });
+
+  it("performs a search with a dash between two digits", async () => {
+    const { eventBus, pdfFindController } = await initPdfFindController();
+
+    await testSearch({
+      eventBus,
+      pdfFindController,
+      state: {
+        query: "2008-02",
+      },
+      matchesPerPage: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      selectedMatch: {
+        pageIndex: 13,
+        matchIndex: 0,
+      },
+      pageMatches: [[], [], [], [], [], [], [], [], [], [], [], [], [], [314]],
+      pageMatchesLength: [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [7],
+      ],
+    });
+  });
+
+  it("performs a search with a group of punctuation signs", async () => {
+    const { eventBus, pdfFindController } =
+      await initPdfFindController("issue20225.pdf");
+
+    await testSearch({
+      eventBus,
+      pdfFindController,
+      state: {
+        query: "....",
+      },
+      matchesPerPage: [1],
+      selectedMatch: {
+        pageIndex: 0,
+        matchIndex: 0,
+      },
+      pageMatches: [[8]],
+      pageMatchesLength: [[4]],
+    });
+  });
+
+  it("performs a search with a group of punctuation signs to escape", async () => {
+    const { eventBus, pdfFindController } =
+      await initPdfFindController("issue20516.pdf");
+
+    await testSearch({
+      eventBus,
+      pdfFindController,
+      state: {
+        query: `("client")`,
+      },
+      matchesPerPage: [1],
+      selectedMatch: {
+        pageIndex: 0,
+        matchIndex: 0,
+      },
+      pageMatches: [[6]],
+      pageMatchesLength: [[10]],
+    });
   });
 
   describe("custom matcher", () => {

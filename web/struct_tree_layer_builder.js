@@ -13,6 +13,9 @@
  * limitations under the License.
  */
 
+/** @typedef {import("../src/display/api").PDFPageProxy} PDFPageProxy */
+
+import { FeatureTest, shadow } from "pdfjs-lib";
 import { removeNullCharacters } from "./ui_utils.js";
 
 const PDF_ROLE_TO_HTML_ROLE = {
@@ -71,22 +74,156 @@ const PDF_ROLE_TO_HTML_ROLE = {
   Artifact: null,
 };
 
+const MathMLElements = new Set([
+  "math",
+  "merror",
+  "mfrac",
+  "mi",
+  "mmultiscripts",
+  "mn",
+  "mo",
+  "mover",
+  "mpadded",
+  "mprescripts",
+  "mroot",
+  "mrow",
+  "ms",
+  "mspace",
+  "msqrt",
+  "mstyle",
+  "msub",
+  "msubsup",
+  "msup",
+  "mtable",
+  "mtd",
+  "mtext",
+  "mtr",
+  "munder",
+  "munderover",
+  "semantics",
+]);
+const MathMLNamespace = "http://www.w3.org/1998/Math/MathML";
+
+class MathMLSanitizer {
+  static get sanitizer() {
+    // From https://w3c.github.io/mathml-docs/mathml-safe-list.
+
+    return shadow(
+      this,
+      "sanitizer",
+      FeatureTest.isSanitizerSupported
+        ? // eslint-disable-next-line no-undef
+          new Sanitizer({
+            elements: [...MathMLElements].map(name => ({
+              name,
+              namespace: MathMLNamespace,
+            })),
+            replaceWithChildrenElements: [
+              {
+                name: "maction",
+                namespace: MathMLNamespace,
+              },
+            ],
+            attributes: [
+              "dir",
+              "displaystyle",
+              "mathbackground",
+              "mathcolor",
+              "mathsize",
+              "scriptlevel",
+              "encoding",
+              "display",
+              "linethickness",
+              "intent",
+              "arg",
+              "form",
+              "fence",
+              "separator",
+              "lspace",
+              "rspace",
+              "stretchy",
+              "symmetric",
+              "maxsize",
+              "minsize",
+              "largeop",
+              "movablelimits",
+              "width",
+              "height",
+              "depth",
+              "voffset",
+              "accent",
+              "accentunder",
+              "columnspan",
+              "rowspan",
+            ],
+            comments: false,
+          })
+        : null
+    );
+  }
+}
+
 const HEADING_PATTERN = /^H(\d+)$/;
 
-class StructTreeLayerBuilder {
-  #treeDom = undefined;
+/**
+ * @typedef {Object} StructTreeLayerBuilderOptions
+ * @property {PDFPageProxy} pdfPage
+ * @property {Object} rawDims
+ */
 
-  get renderingDone() {
-    return this.#treeDom !== undefined;
+class StructTreeLayerBuilder {
+  #promise;
+
+  #treeDom = null;
+
+  #treePromise;
+
+  #elementAttributes = new Map();
+
+  #rawDims;
+
+  #elementsToAddToTextLayer = null;
+
+  /**
+   * @param {StructTreeLayerBuilderOptions} options
+   */
+  constructor(pdfPage, rawDims) {
+    this.#promise = pdfPage.getStructTree();
+    this.#rawDims = rawDims;
   }
 
-  render(structTree) {
-    if (this.#treeDom !== undefined) {
-      return this.#treeDom;
+  /**
+   * @returns {Promise<void>}
+   */
+  async render() {
+    if (this.#treePromise) {
+      return this.#treePromise;
     }
-    const treeDom = this.#walk(structTree);
-    treeDom?.classList.add("structTree");
-    return (this.#treeDom = treeDom);
+    const { promise, resolve, reject } = Promise.withResolvers();
+    this.#treePromise = promise;
+
+    try {
+      this.#treeDom = this.#walk(await this.#promise);
+    } catch (ex) {
+      reject(ex);
+    }
+    this.#promise = null;
+
+    this.#treeDom?.classList.add("structTree");
+    resolve(this.#treeDom);
+
+    return promise;
+  }
+
+  async getAriaAttributes(annotationId) {
+    try {
+      await this.render();
+      return this.#elementAttributes.get(annotationId);
+    } catch {
+      // If the structTree cannot be fetched, parsed, and/or rendered,
+      // ensure that e.g. the AnnotationLayer won't break completely.
+    }
+    return null;
   }
 
   hide() {
@@ -104,7 +241,24 @@ class StructTreeLayerBuilder {
   #setAttributes(structElement, htmlElement) {
     const { alt, id, lang } = structElement;
     if (alt !== undefined) {
-      htmlElement.setAttribute("aria-label", removeNullCharacters(alt));
+      // Don't add the label in the struct tree layer but on the annotation
+      // in the annotation layer.
+      let added = false;
+      const label = removeNullCharacters(alt);
+      for (const child of structElement.children) {
+        if (child.type === "annotation") {
+          let attrs = this.#elementAttributes.get(child.id);
+          if (!attrs) {
+            attrs = new Map();
+            this.#elementAttributes.set(child.id, attrs);
+          }
+          attrs.set("aria-label", label);
+          added = true;
+        }
+      }
+      if (!added) {
+        htmlElement.setAttribute("aria-label", label);
+      }
     }
     if (id !== undefined) {
       htmlElement.setAttribute("aria-owns", id);
@@ -117,14 +271,78 @@ class StructTreeLayerBuilder {
     }
   }
 
+  #addImageInTextLayer(node, element) {
+    const { alt, bbox, children } = node;
+    const child = children?.[0];
+    if (!this.#rawDims || !alt || !bbox || child?.type !== "content") {
+      return false;
+    }
+
+    const { id } = child;
+    if (!id) {
+      return false;
+    }
+
+    // We cannot add the created element to the text layer immediately, as the
+    // text layer might not be ready yet. Instead, we store the element and add
+    // it later in `addElementsToTextLayer`.
+
+    element.setAttribute("aria-owns", id);
+    const img = document.createElement("span");
+    (this.#elementsToAddToTextLayer ||= new Map()).set(id, img);
+    img.setAttribute("role", "img");
+    img.setAttribute("aria-label", removeNullCharacters(alt));
+
+    const { pageHeight, pageX, pageY } = this.#rawDims;
+    const calc = "calc(var(--total-scale-factor) *";
+    const { style } = img;
+    style.width = `${calc}${bbox[2] - bbox[0]}px)`;
+    style.height = `${calc}${bbox[3] - bbox[1]}px)`;
+    style.left = `${calc}${bbox[0] - pageX}px)`;
+    style.top = `${calc}${pageHeight - bbox[3] + pageY}px)`;
+
+    return true;
+  }
+
+  addElementsToTextLayer() {
+    if (!this.#elementsToAddToTextLayer) {
+      return;
+    }
+    for (const [id, img] of this.#elementsToAddToTextLayer) {
+      document.getElementById(id)?.append(img);
+    }
+    this.#elementsToAddToTextLayer.clear();
+    this.#elementsToAddToTextLayer = null;
+  }
+
   #walk(node) {
     if (!node) {
       return null;
     }
 
-    const element = document.createElement("span");
+    let element;
     if ("role" in node) {
       const { role } = node;
+      if (MathMLElements.has(role)) {
+        element = document.createElementNS(MathMLNamespace, role);
+        let text = "";
+        for (const { type, id } of node.children || []) {
+          if (type !== "content" || !id) {
+            continue;
+          }
+          const elem = document.getElementById(id);
+          if (!elem) {
+            continue;
+          }
+          text += elem.textContent.trim() || "";
+          // Aria-hide the element in order to avoid duplicate reading of the
+          // math content by screen readers.
+          elem.ariaHidden = "true";
+        }
+        element.textContent = text;
+      } else {
+        element = document.createElement("span");
+      }
       const match = role.match(HEADING_PATTERN);
       if (match) {
         element.setAttribute("role", "heading");
@@ -132,7 +350,43 @@ class StructTreeLayerBuilder {
       } else if (PDF_ROLE_TO_HTML_ROLE[role]) {
         element.setAttribute("role", PDF_ROLE_TO_HTML_ROLE[role]);
       }
+      if (role === "Figure" && this.#addImageInTextLayer(node, element)) {
+        return element;
+      }
+      if (role === "Formula") {
+        if (node.mathML && MathMLSanitizer.sanitizer) {
+          element.setHTML(node.mathML, {
+            sanitizer: MathMLSanitizer.sanitizer,
+          });
+          // Hide all the corresponding content elements in the text layer in
+          // order to avoid screen readers reading both the MathML and the
+          // text content.
+          for (const { id } of node.children || []) {
+            if (!id) {
+              continue;
+            }
+            const elem = document.getElementById(id);
+            if (elem) {
+              elem.ariaHidden = true;
+            }
+          }
+          // For now, we don't want to keep the alt text if there's valid
+          // MathML (see https://github.com/w3c/mathml-aam/issues/37).
+          // TODO: Revisit this decision in the future.
+          delete node.alt;
+        }
+        if (
+          !node.mathML &&
+          node.children.length === 1 &&
+          node.children[0].role !== "math"
+        ) {
+          element = document.createElementNS(MathMLNamespace, "math");
+          delete node.alt;
+        }
+      }
     }
+
+    element ||= document.createElement("span");
 
     this.#setAttributes(node, element);
 
